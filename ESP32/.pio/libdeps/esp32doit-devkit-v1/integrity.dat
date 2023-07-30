@@ -1,0 +1,5 @@
+esphome/ESP32-audioI2S@^2.0.7
+arduino-libraries/NTPClient@^3.2.1
+mobizt/Firebase ESP32 Client@^4.3.10
+bblanchon/ArduinoJson@^6.21.2
+majicdesigns/MD_Parola@^3.6.2
