@@ -45,6 +45,13 @@ void inc(char time[N])
     set_time(time, hour, min);
 }
 
+void dec(char time[N])
+{
+    int min = (minutes(time) - 1) % 60;
+    int hour = min == 0 ? (hours(time) - 1) % 24 : hours(time);
+    set_time(time, hour, min);
+}
+
 int hours(char time[N])
 {
     int hour = (time[1] - 48) * 10 + time[2] - 48;

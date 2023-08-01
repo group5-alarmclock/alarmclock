@@ -4,24 +4,26 @@
 #include "Arduino.h"
 #include "Audio.h"
 
-// Define I2S connections
-#define I2S_DOUT 22
-#define I2S_BCLK 26
-#define I2S_LRC 25
+// Pin definitions for the MAX98357A amplifier
+#define MAX98357_BCLK_PIN 26
+#define MAX98357_LRC_PIN 25
+#define MAX98357_DIN_PIN 27
+
+// microSD Card Reader connections
+#define SD_CS 5
+#define SPI_MOSI 23 // 32
+#define SPI_MISO 19 // 33
+#define SPI_SCK 18  // 19
+
+// I2S configuration
+const int i2sBitsPerSample = 16;
+const int i2sBufferSize = 1024;
 
 // Create audio object
 Audio audio;
 
-/*
-  Simple Internet Radio Demo
-  esp32-i2s-simple-radio.ino
-  Simple ESP32 I2S radio
-  Uses MAX98357 I2S Amplifier Module
-  Uses ESP32-audioI2S Library - https://github.com/schreibfaul1/ESP32-audioI2S
-
-  DroneBot Workshop 2022
-  https://dronebotworkshop.com
-*/
+bool audioDestroyed = false;
+bool audioInit = false;
 
 void audio_info(const char *info)
 {
