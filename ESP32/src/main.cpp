@@ -1,18 +1,13 @@
 #include <WiFi.h>
-#include <HTTPClient.h>
-#include <driver/i2s.h>
 #include <FirebaseESP32.h>
 #include <ArduinoJson.h>
 #include <SPIFFS.h>
+#include <SD.h>
 #include "display.h"
 #include "sound.h"
 #include "timer.h"
 #include "modes.h"
 #include "reminders.h"
-#include "SD.h"
-#include "FS.h"
-#include "access_point.h"
-#include "wifi_connect.h"
 
 // For settings
 bool autoBrightness = true;
@@ -25,10 +20,6 @@ char snakeGame[3] = "10";
 // WIFI config
 const char *ssid = "free wifi";
 const char *password = "3lejlejle";
-// const char *ssid = "Tabri";
-// const char *password = "0507428601";
-// const char *ssid = "iPhone";
-// const char *password = "12345678";
 
 // Firebase Config and Variables
 char const *URL = "https://iot-alarm-clock-4-default-rtdb.europe-west1.firebasedatabase.app/";
@@ -42,17 +33,10 @@ FirebaseData firebaseData;
 FirebaseData firebaseChanges;
 unsigned long alarmsTimeCheck;
 unsigned long settingsTimeCheck;
-
-// Weather Related
-String openWeatherMapApiKey = "4fd3ca02728346871e8c2d96dcf582d8";
-String city = "Nazareth";
-String countryCode = "IL";
-int temp, minTemp, maxTemp, humidity, windSpeed;
-int weatherMode = 1;
+bool inFirebase = false;
 
 // Helper Function
 void connectToWifi();
-void configAudio();
 void InitSDcard();
 void showFiles();
 void updateClock();
@@ -84,10 +68,6 @@ void printSettings();
 void showTime();
 void showDate();
 void showDay();
-
-String httpGETRequest(const char *serverName);
-void weather();
-void getWeather(char *psz);
 
 void updateReminders();
 void showReminders();
@@ -123,7 +103,6 @@ void setup()
   DestroyAudio();
   InitSDcard();
   initButtons();
-  configAudio();
   showFiles();
 
   freeHeap(2);
@@ -217,11 +196,6 @@ void loop()
   if (WiFi.status() != WL_CONNECTED)
   {
     ESP.restart();
-
-    // sprintf(szTime, "NoConn");
-    // myDisplay.displayReset(0);
-    // connectToWifi();
-    // modeChanged = true;
   }
 }
 
@@ -333,39 +307,6 @@ bool playText(const char *text)
   }
 }
 
-void playMorningFile()
-{
-  char text[40];
-  if (textIndex == -5)
-  {
-    sprintf(text, "today is %s, %s %d, %d", fullWdays[wday], months[month], day, 2000 + year);
-    playText(text);
-    textIndex++;
-  }
-  if (textIndex == -4)
-  {
-    sprintf(text, "Good morning");
-    playText(text);
-    textIndex++;
-  }
-  if (textIndex == -3)
-  {
-    sprintf(text, "it is: %02s:%02s %s", String(h).c_str(), String(m).c_str(), h < 12 ? "am" : "pm");
-    playText(text);
-    textIndex++;
-  }
-  if (textIndex == -2)
-  {
-    sprintf(text, "today is %s, %s %d, %d", fullWdays[wday], months[month], day, 2000 + year);
-    playText(text);
-    textIndex++;
-  }
-  else if (textIndex >= -1)
-  {
-    playReminders();
-  }
-}
-
 bool isAlarmHandeled()
 {
   if (level == 1)
@@ -378,7 +319,7 @@ bool isAlarmHandeled()
   }
   else if (level == 3)
   {
-    if (snakeGame[0] == '1')
+    if (alarmTimePassed > 7 && snakeGame[0] == '1' && snakeGame[1] == '0')
       return true;
     else
       return false;
@@ -431,8 +372,8 @@ int isItTimeAux()
       level = std::stoi(alarms.at(LEVEL).at(i));
       if (level == 3)
         Firebase.RTDB.setString(&firebaseChanges, "/Alarms/is alarm off", "00");
-      firebaseChanges.clear();
 
+      firebaseChanges.clear();
       return i + 1; // the alarm number
     }
   }
@@ -661,7 +602,7 @@ void showReminders()
   {
     Serial.print("long pressed\n");
     isTTS = true;
-    textIndex = -1;
+    textIndex = -2;
   }
 
   if (isTTS && !audio.isRunning())
@@ -682,31 +623,31 @@ void playReminders()
 
   char text[200];
   DestroyAudio();
-  if (textIndex == -1)
+  if (textIndex == -2) // for reminders page
+  {
+    sprintf(text, "You have %s %s for today.", reminderNum == 0 ? "no" : String(reminderNum).c_str(), reminderNum == 1 ? " task" : " tasks");
+    playText(text);
+    textIndex += 2;
+  }
+  else if (textIndex == -1) // for alarms
   {
     sprintf(text, "%s it is: %02d:%02d %s, %s %d, %d. You have %s %s for today.",
-            isAlarm == true ? (h < 12 ? "Good morning," : "Good evening,") : "", h, m, h < 12 ? "am" : "pm",
+            isAlarm == true ? (h < 12 ? "Good morning." : "Good evening.") : "", h, m, h < 12 ? "am" : "pm",
             months[month], day, 2000 + year,
-            reminderNum == 0 ? "no" : String(reminderNum), reminderNum == 1 ? " task" : " tasks");
+            reminderNum == 0 ? "no" : String(reminderNum).c_str(), reminderNum == 1 ? " task" : " tasks");
     playText(text);
     textIndex++;
   }
-  else if (textIndex == 0 || textIndex < reminderNum) // need to change
+  else if (textIndex < reminderNum)
   {
     sprintf(text, "");
-    // for (int i = 0; i < reminderNum; i++)
-    for (int i = 0; i < 3; i++)
+    for (int i = 0; i < reminderNum; i++)
     {
       char task[40];
-      // sprintf(task, "%s at %s %s. ", reminders.at(TASK).at(i).c_str(), reminders.at(SCHED).at(i).c_str(), atoi(reminders.at(SCHED).at(i).c_str()) < 12 ? "am" : "pm");
-      sprintf(task, "task %d at %02d:30 pm. ", i + 1, i + 12);
+      sprintf(task, "%s at %s %s. ", reminders.at(TASK).at(i).c_str(), reminders.at(SCHED).at(i).c_str(), atoi(reminders.at(SCHED).at(i).c_str()) < 12 ? "am" : "pm");
       strcat(text, task);
     }
     playText(text);
-    textIndex++;
-  }
-  else
-  {
     isTTS = false;
   }
 }
@@ -1070,31 +1011,6 @@ void connectToWifi()
   //   }
   // }
   // closeServer();
-}
-
-void configAudio()
-{
-  // Set up the I2S interface for output
-  i2s_config_t i2sConfig = {
-      .mode = (i2s_mode_t)(I2S_MODE_MASTER | I2S_MODE_TX),
-      .sample_rate = 16000,
-      .bits_per_sample = I2S_BITS_PER_SAMPLE_16BIT,
-      .channel_format = I2S_CHANNEL_FMT_RIGHT_LEFT,
-      .communication_format = (i2s_comm_format_t)(I2S_COMM_FORMAT_I2S | I2S_COMM_FORMAT_I2S_MSB),
-      .intr_alloc_flags = ESP_INTR_FLAG_LEVEL1,
-      .dma_buf_count = 2,
-      .dma_buf_len = 1024};
-
-  i2s_pin_config_t pinConfig = {
-      .bck_io_num = MAX98357_BCLK_PIN,
-      .ws_io_num = MAX98357_LRC_PIN,
-      .data_out_num = MAX98357_DIN_PIN,
-      .data_in_num = I2S_PIN_NO_CHANGE};
-
-  // i2s_driver_install(I2S_NUM_1, &i2sConfig, 0, NULL);
-  // i2s_set_pin(I2S_NUM_0, &pinConfig);
-
-  Serial.println("Audio Setup complete.");
 }
 
 void InitSDcard()
